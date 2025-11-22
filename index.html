@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SI-GE – Nova Versão Estável</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0d1117; color:#e6edf3; font-family: Inter, sans-serif; }
+  .dock { position:fixed; left:0; top:0; bottom:0; width:260px; background:#161b22; border-right:1px solid #30363d; padding:16px; overflow:auto; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:14px; }
+  .fullscreen-panel { position:fixed; inset:0; background:#0d1117; z-index:50; overflow:auto; padding:20px; }
+  input { background:#0d1117; border:1px solid #30363d; padding:6px; border-radius:8px; width:100%; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { padding:8px; border-bottom:1px solid #30363d; }
+</style>
+</head>
+<body>
+
+<div id="dock" class="dock">
+  <div class="text-xl font-bold mb-4">Gestores</div>
+  <div id="gestoresArea"></div>
+</div>
+
+<div id="main" class="ml-[260px] p-6">
+  <div class="text-2xl font-bold mb-3">Painel — <span id="gestorSelecionado">Selecione um gestor</span></div>
+  <div id="servidoresArea" class="grid gap-3"></div>
+</div>
+
+<div id="painelDetalhes"></div>
+
+<script>
+//-------------------------------------------------------------
+// CONFIG
+//-------------------------------------------------------------
+const scriptURL = "https://script.google.com/macros/s/AKfycbzLEQ7RKgHi8iofdhu2YOt2iZCOxjXzYpihQZ9pp4jKhvwNeDUnbhnlossPYKxS0Pwo/exec";
+let data = [];
+let gestorAtual = null;
+let servidorAtual = null;
+
+//-------------------------------------------------------------
+// CARREGAR DADOS VIA GET
+//-------------------------------------------------------------
+async function loadData(){
+  try{
+    const r = await fetch(scriptURL);
+    data = await r.json();
+    montarGestores();
+  } catch(e){
+    alert("Erro ao carregar dados: " + e);
+  }
+}
+
+//-------------------------------------------------------------
+// LISTA DE GESTORES
+//-------------------------------------------------------------
+function montarGestores(){
+  const setores = {
+    CRIM:["CAMILA E FLAVIANNO","ISLA E RONNIE"],
+    INF:["AMIELTHON"],
+    CIV:["AMANDA, DANILO E KARLLA","DAVY E ROSANA","JORGE E VICTOR","JUCINEIDE E PRISCILA","KELVIN E SANDRA","MICHEL E RICARDO","WARLLYS"]
+  };
+
+  let html = "";
+  for(const s in setores){
+    html += `<div class='text-gray-400 text-sm mt-4 mb-1'>${s}</div>`;
+
+    setores[s].forEach(g =>{
+      html += `<button class='w-full text-left px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 mb-1' onclick='selecionarGestor("${g}")'>${g}</button>`;
+    });
+  }
+
+  document.getElementById('gestoresArea').innerHTML = html;
+}
+
+//-------------------------------------------------------------
+// SELECIONAR GESTOR → LISTA SERVIDORES
+//-------------------------------------------------------------
+function selecionarGestor(gestor){
+  gestorAtual = gestor;
+  document.getElementById('gestorSelecionado').innerText = gestor;
+
+  const servidores = [...new Set(
+    data.filter(r => r.gestor === gestor).map(r => r.servidor)
+  )];
+
+  let html = "";
+  servidores.forEach(s =>{
+    const processos = data.filter(r => r.gestor === gestor && r.servidor === s);
+    const cumpridos = processos.filter(r => String(r["situação"]).toLowerCase().includes("cumpr"));
+
+    html += `
+      <div class='card cursor-pointer hover:bg-gray-800' onclick='abrirPainel("${s}")'>
+        <div class='text-lg font-bold'>${s}</div>
+        <div class='text-gray-400 text-sm'>${cumpridos.length}/${processos.length} cumpridos</div>
+      </div>`;
+  });
+
+  document.getElementById('servidoresArea').innerHTML = html;
+}
+
+//-------------------------------------------------------------
+// ABRIR PAINEL FULLSCREEN
+//-------------------------------------------------------------
+function abrirPainel(servidor){
+  servidorAtual = servidor;
+
+  const processos = data.filter(
+    r => r.gestor === gestorAtual && r.servidor === servidorAtual
+  );
+
+  document.getElementById('painelDetalhes').innerHTML = `
+    <div class='fullscreen-panel' id='painelFS'>
+
+      <div class='flex justify-between items-center mb-6'>
+        <div>
+          <div class='text-2xl font-bold'>${servidorAtual}</div>
+          <div class='text-gray-400 text-sm'>${processos.length} processos</div>
+        </div>
+        <button class='px-4 py-2 bg-red-600 rounded' onclick='fecharPainel()'>Fechar</button>
+      </div>
+
+      <div id='tabelaWrap' class='card'></div>
+    </div>`;
+
+  montarTabela(processos);
+}
+
+//-------------------------------------------------------------
+// FECHAR PAINEL
+//-------------------------------------------------------------
+function fecharPainel(){
+  document.getElementById('painelDetalhes').innerHTML = "";
+}
+
+//-------------------------------------------------------------
+// TABELA EDITÁVEL
+//-------------------------------------------------------------
+function montarTabela(rows){
+  if(rows.length === 0){
+    document.getElementById('tabelaWrap').innerHTML = "Nenhum processo";
+    return;
+  }
+
+  const cols = Object.keys(rows[0]).filter(c => !['gestor','servidor'].includes(c));
+
+  let html = `<table><thead><tr>`;
+  cols.forEach(c => html += `<th>${c}</th>`);
+  html += `</tr></thead><tbody>`;
+
+  rows.forEach(r =>{
+    html += `<tr data-npu='${r.npu}'>`;
+
+    cols.forEach(c =>{
+      const v = r[c] ?? "";
+
+      if(["situação","dt_retorno","observação","incompleto"].includes(c)){
+        html += `<td><input data-col='${c}' value='${v}' onchange='salvarCampo(this)' /></td>`;
+      } else {
+        html += `<td class='text-gray-400'>${v}</td>`;
+      }
+    });
+
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById('tabelaWrap').innerHTML = html;
+}
+
+//-------------------------------------------------------------
+// SALVAR NO APPS SCRIPT VIA POST
+//-------------------------------------------------------------
+async function salvarCampo(input){
+  const tr = input.closest('tr');
+  const npu = tr.dataset.npu;
+  const coluna = input.dataset.col;
+  const valor = input.value;
+
+  input.style.borderColor = "#eab308";
+
+  const payload = {
+    keyColumn: "npu",
+    keyValue: npu,
+    column: coluna,
+    value: valor
+  };
+
+  try{
+    const r = await fetch(scriptURL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+
+    const j = await r.json();
+
+    if(j.success){
+      input.style.borderColor = "#22c55e";
+    } else {
+      input.style.borderColor = "#ef4444";
+      alert("Erro ao salvar: " + j.message);
+    }
+
+  } catch(e){
+    input.style.borderColor = "#ef4444";
+    alert("Falha na conexão: " + e);
+  }
+}
+
+//-------------------------------------------------------------
+// INICIAR
+//-------------------------------------------------------------
+loadData();
+
+</script>
+</body>
+</html>
